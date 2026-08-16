@@ -1,0 +1,70 @@
+# S2 Pipeline Configuration
+
+paths:
+  # GT VLN-CE data (for analysis and evaluation baseline)
+  vln_ce_gt_val_unseen: /mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_patched.json.gz
+  vln_ce_scenes: /mnt/nvme0/vln_habitat/habitat_data/scene_datasets/mp3d
+  # VLN-PE data
+  vln_pe_gt_val_unseen: /home/kemal/VLNav/VLNav/workspaces/model/InternNav-dev/data/InternData-N1-v0.5-mini/vln_pe/raw_data/r2r/val_unseen/val_unseen.json.gz
+  # Output directory
+  output_dir: /home/kemal/VLNav/s2_pipeline_new/outputs
+  rendered_frames_dir: /home/kemal/VLNav/s2_pipeline_new/outputs/rendered_frames
+  generated_dataset_dir: /home/kemal/VLNav/s2_pipeline_new/outputs/datasets
+
+renderer:
+  width: 640
+  height: 480
+  hfov: 90.0                  # degrees, matches Habitat R2R default
+  frames_per_segment: 4       # interpolated frames between waypoints
+  sensor_height: 1.25         # meters (H1 camera height approx)
+  save_depth: true
+
+path_analyzer:
+  turn_threshold_deg: 30.0    # heading change > this = significant turn
+  min_segment_dist_m: 0.3     # ignore micro-segments below this
+
+landmark_detector:
+  backend: gemma              # gemma | gpt4o
+  key_frame_types:
+    - start                   # first frame
+    - turn                    # frame at each significant turn
+    - goal_approach           # last 2 waypoints
+  max_landmarks_per_frame: 4
+  gemma:
+    model: google/gemma-3-27b-it  # or local AWQ checkpoint
+    max_new_tokens: 128
+  gpt4o:
+    model: gpt-4o
+    max_tokens: 128
+
+instruction_generator:
+  backend: gemma              # gemma | gpt4o
+  max_retries: 3
+  quality_filter:
+    min_words: 10
+    max_words: 60
+    require_stop_condition: true
+    require_landmark: true
+  gemma:
+    model: google/gemma-3-27b-it
+    max_new_tokens: 256
+    temperature: 0.3          # low temperature for consistency
+  gpt4o:
+    model: gpt-4o
+    max_tokens: 256
+    temperature: 0.3
+
+tokenizer:
+  vocab_path: /mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_patched.json.gz
+  pad_length: 200
+  unk_index: 1
+  pad_index: 0
+
+evaluation:
+  habitat_eval_container: vlnav/habitat-eval:rebuilt
+  isaac_eval_container: vlnav/eval-isaaclab:dev
+  gpu_habitat: 1
+  gpu_isaac: 2
+  sr_tolerance_pp: 3.0        # max acceptable SR drop vs GT (percentage points)
+  bertscore_target: 0.85
+  bleu4_target: 0.15

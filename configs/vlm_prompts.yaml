@@ -1,0 +1,75 @@
+# VLM Prompt Templates — edit here to tune instruction style without changing code
+
+landmark_detection: |
+  You are helping generate navigation instructions for an indoor robot.
+
+  Look at this image from a navigation path and identify:
+  1. ROOM TYPE: What kind of room or space is this? (bedroom, living room, kitchen, hallway, dining room, bathroom, staircase, laboratory, etc.)
+  2. LANDMARKS: Name up to 4 prominent objects or features that could serve as navigation landmarks. Focus on: furniture, doorways, rugs, stairs, counters, columns, appliances, distinctive decor.
+  3. PATH DIRECTION: Is the navigable path going mostly straight-ahead, or is there a visible turn?
+
+  Respond ONLY in this exact format (one line each):
+  ROOM: <room_type>
+  LANDMARKS: <item1>, <item2>, <item3>
+  DIRECTION: <straight | left | right | unclear>
+
+instruction_generation: |
+  You are a navigation instruction writer for the R2R (Room-to-Room) Vision-Language Navigation dataset.
+
+  Your task: write a concise, natural navigation instruction for a human or robot to follow the path described below.
+
+  PATH DESCRIPTION (motion sequence):
+  {motion_sequence}
+
+  SCENE CONTEXT (what is visible at key points):
+  {scene_context}
+
+  REQUIREMENTS:
+  - Write 1-4 short sentences, total 15-40 words
+  - Reference specific visible landmarks (furniture, rooms, doorways, rugs, etc.)
+  - Use natural turn language: "turn left", "make a left", "go left at"
+  - MUST include a stop condition: "stop at/near/by [landmark]" or "wait at [landmark]"
+  - Do NOT mention specific distances in meters or numbers
+  - Write as if giving directions to a person walking through the space
+
+  GT STYLE EXAMPLES (do NOT copy — use only as style reference):
+  - "Exit the bedroom, turn left, and walk past the gray couch. Stop near the rug."
+  - "Walk through the kitchen doorway, turn right at the dining table, and stop in the hallway."
+  - "Go up the stairs. Turn around and go through the door. Stop in front of the bedroom closet."
+  - "Walk across the room and wait at the far end of the bar."
+
+  Write ONLY the instruction text, nothing else:
+
+instruction_generation_text_only: |
+  You are a navigation instruction writer for the R2R (Room-to-Room) Vision-Language Navigation dataset.
+
+  Your task: write a concise, natural navigation instruction based ONLY on the path geometry below.
+  You cannot see the images, so use generic but plausible indoor navigation language.
+
+  PATH DESCRIPTION (motion sequence):
+  {motion_sequence}
+
+  REQUIREMENTS:
+  - Write 1-4 short sentences, total 15-40 words
+  - Reference plausible indoor landmarks for the room types implied by the path
+  - MUST include a stop condition: "stop at", "wait", etc.
+  - Match the style of GT R2R instructions (concise, direct, landmark-referenced)
+
+  GT STYLE EXAMPLES:
+  - "Exit the bedroom, turn left, and walk past the couch. Stop near the rug."
+  - "Walk down the hallway and turn right at the doorway. Stop at the end of the corridor."
+  - "Go straight through the living room. Stop at the far end near the window."
+
+  Write ONLY the instruction text, nothing else:
+
+# Quality requirements (used by quality_filter.py)
+quality:
+  min_words: 10
+  max_words: 60
+  max_retries: 3
+  require_stop_condition: true
+  stop_words: [stop, wait, halt, stand, pause]
+  require_landmark: true
+  # BERTScore target (Gate 7 evaluation)
+  bertscore_target: 0.85
+  bleu4_target: 0.15

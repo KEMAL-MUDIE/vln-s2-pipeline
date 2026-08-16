@@ -1,0 +1,84 @@
+{
+  "n_episodes": 1839,
+  "vocabulary_size": 2711,
+  "instruction": {
+    "word_count": {
+      "min": 5,
+      "max": 119,
+      "mean": 26.78,
+      "median": 25,
+      "stdev": 11.45
+    },
+    "sentence_count": {
+      "min": 1,
+      "max": 8,
+      "mean": 2.51
+    }
+  },
+  "path": {
+    "waypoint_count": {
+      "min": 4,
+      "max": 7,
+      "mean": 5.87
+    },
+    "geodesic_distance_m": {
+      "min": 3.85,
+      "max": 21.045,
+      "mean": 8.899
+    }
+  },
+  "motion_primitives": {
+    "straight": 4713,
+    "left_turn": 1425,
+    "stop": 1839,
+    "right_turn": 1449
+  },
+  "top_landmarks": {
+    "stairs": 323,
+    "hallway": 229,
+    "kitchen": 226,
+    "bedroom": 172,
+    "stairs and": 168,
+    "bathroom": 148,
+    "living room": 147,
+    "doorway": 139,
+    "room": 139,
+    "dining room": 138,
+    "end of": 125,
+    "kitchen and": 120,
+    "hall": 103,
+    "bed": 99,
+    "bedroom and": 96,
+    "room and": 96,
+    "door": 95,
+    "door on": 92,
+    "room with": 87,
+    "hallway and": 85,
+    "next room": 75,
+    "sink": 72,
+    "bathroom and": 70,
+    "doorway to": 67,
+    "open door": 64,
+    "bottom of": 64,
+    "doorway on": 63,
+    "top of": 61,
+    "right and": 60,
+    "table and": 60
+  },
+  "stop_patterns": {
+    "stop": 994,
+    "wait": 601,
+    "stand": 80,
+    "halt": 1
+  },
+  "turn_phrases": {
+    "turn left": 444,
+    "turn right": 456,
+    "go right": 5,
+    "make a left": 40,
+    "go left": 27,
+    "make a right": 35,
+    "veer left": 3,
+    "veer right": 4
+  }
+}
