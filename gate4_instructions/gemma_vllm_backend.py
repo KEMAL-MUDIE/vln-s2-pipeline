@@ -72,11 +72,26 @@ def build_gate3_v7_messages(motion_sequence: str) -> List[dict]:
     prompts = _load_prompts()
     template = prompts.get("instruction_generation_gate3_v7", "")
     if not template:
-        # Fallback: same as gate3 but with target sentences injected
         template = (
             "You write R2R VLN navigation instructions.\n\n"
             "PATH:\n{motion_sequence}\n\n"
             "Write EXACTLY the number of sentences in Target_sentences. "
+            "Use room transitions, include stop condition. Write ONLY the instruction:"
+        )
+    prompt = template.format(motion_sequence=motion_sequence)
+    return [{"role": "user", "content": prompt}]
+
+
+def build_gate3_v8_messages(motion_sequence: str) -> List[dict]:
+    """Build chat messages using the gate3 v8 prompt (probabilistic sentences + 4-sentence structure)."""
+    prompts = _load_prompts()
+    template = prompts.get("instruction_generation_gate3_v8", "")
+    if not template:
+        template = (
+            "You write R2R VLN navigation instructions.\n\n"
+            "PATH:\n{motion_sequence}\n\n"
+            "Write EXACTLY the number of sentences in Target_sentences. "
+            "For 4 sentences: each Waypoint gets its own sentence, last sentence is Stop. "
             "Use room transitions, include stop condition. Write ONLY the instruction:"
         )
     prompt = template.format(motion_sequence=motion_sequence)
@@ -136,6 +151,8 @@ async def generate_one_async(
             messages = build_gate3_messages(motion_sequence)
         elif prompt_type == "gate3_v7":
             messages = build_gate3_v7_messages(motion_sequence)
+        elif prompt_type == "gate3_v8":
+            messages = build_gate3_v8_messages(motion_sequence)
         else:
             messages = build_text_only_messages(motion_sequence, scene_context)
         try:

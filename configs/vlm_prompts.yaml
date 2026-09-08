@@ -117,6 +117,37 @@ instruction_generation_gate3_v7: |
 
   Write ONLY the instruction text:
 
+instruction_generation_gate3_v8: |
+  You are a navigation instruction writer for the R2R (Room-to-Room) VLN dataset.
+
+  Write a navigation instruction for the path below.
+  The PATH includes a "Target_sentences" field — write EXACTLY that many sentences.
+
+  PATH:
+  {motion_sequence}
+
+  RULES:
+  - Write EXACTLY the number of sentences in Target_sentences — no more, no less
+  - START with the Initial facing action if given (e.g., "Turn left and..." / "Turn around and...")
+  - For 4-sentence: each Waypoint gets its OWN sentence; last sentence is the Stop
+  - If a Waypoint says "turn left/right into X": write "Turn left/right into the X" as its sentence
+  - If a Waypoint says "through the doorway" or "enter the Y": write that as its own sentence
+  - Use "exit the ROOM" when leaving a named start room (bedroom, kitchen, hallway, etc.)
+  - Use "walk up/down the stairs" for stair segments
+  - Do NOT use "continue" more than once; alternatives: "walk forward", "head", "go through", "walk past"
+  - MUST include the Stop phrase exactly as written in the Stop field
+  - Keep instructions between 12-45 words total
+
+  STYLE REFERENCE — follow these structures exactly for sentence count:
+  1-sentence: "Walk across the room and wait at the far end of the bar."
+  2-sentence: "Turn left and walk up the stairs. Follow the hallway and stop at the small window."
+  3-sentence: "Exit the living room and turn right. Walk past the gray sofa and enter the kitchen. Stop near the counter."
+  4-sentence example A: "Turn left and walk down the hallway. Go through the doorway near the mirror. Enter the bedroom past the dresser. Wait near the bed."
+  4-sentence example B: "Exit the bathroom and walk up the stairs. Turn right at the top landing. Walk through the doorway into the office. Stop near the desk."
+  4-sentence example C: "Walk through the living room. Turn right into the kitchen past the counter. Go through the doorway into the hallway. Stop near the door."
+
+  Write ONLY the instruction text:
+
 # Quality requirements (used by quality_filter.py)
 quality:
   min_words: 10
