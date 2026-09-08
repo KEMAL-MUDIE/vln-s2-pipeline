@@ -52,6 +52,21 @@ def build_text_only_messages(motion_sequence: str, scene_context: str) -> List[d
     return [{"role": "user", "content": prompt}]
 
 
+def build_gate3_messages(motion_sequence: str) -> List[dict]:
+    """Build chat messages using the gate3-specific GT-aligned prompt template."""
+    prompts = _load_prompts()
+    template = prompts.get("instruction_generation_gate3", "")
+    if not template:
+        template = (
+            "You write R2R VLN navigation instructions.\n\n"
+            "PATH:\n{motion_sequence}\n\n"
+            "Write 1-4 sentences using room transitions, minimal explicit turns. "
+            "Include stop condition. Write ONLY the instruction:"
+        )
+    prompt = template.format(motion_sequence=motion_sequence)
+    return [{"role": "user", "content": prompt}]
+
+
 def build_vision_messages(motion_sequence: str, scene_context: str, image_paths: List[str]) -> List[dict]:
     """Build chat messages with embedded key-frame images."""
     prompts = _load_prompts()
@@ -93,17 +108,22 @@ async def generate_one_async(
     scene_context: str = "",
     image_paths: List[str] = None,
     semaphore: asyncio.Semaphore = None,
+    prompt_type: str = "text_only",
+    temperature: float = None,
 ) -> Dict:
     """Async single-call generation with semaphore throttling."""
+    temp = temperature if temperature is not None else TEMPERATURE
     async with semaphore:
         if image_paths:
             messages = build_vision_messages(motion_sequence, scene_context, image_paths)
+        elif prompt_type == "gate3":
+            messages = build_gate3_messages(motion_sequence)
         else:
             messages = build_text_only_messages(motion_sequence, scene_context)
         try:
             resp = await client.chat.completions.create(
                 model=VLLM_MODEL, messages=messages,
-                max_tokens=MAX_NEW_TOKENS, temperature=TEMPERATURE,
+                max_tokens=MAX_NEW_TOKENS, temperature=temp,
             )
             text = resp.choices[0].message.content.strip()
             return {"episode_id": episode_id, "text": text, "ok": True, "error": None}
@@ -115,10 +135,12 @@ async def generate_batch_async(
     tasks: List[Dict],   # [{"episode_id": int, "motion_sequence": str, "scene_context": str}]
     concurrency: int = 16,
     progress_every: int = 50,
+    prompt_type: str = "text_only",
 ) -> Dict[int, str]:
     """
     Generate instructions for all tasks concurrently.
     Returns {episode_id: instruction_text}.
+    prompt_type: "text_only" | "gate3" | "vision" (vision needs image_paths in task)
     """
     import time
     client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key=VLLM_API_KEY)
@@ -129,7 +151,8 @@ async def generate_batch_async(
         generate_one_async(
             client, t["episode_id"], t["motion_sequence"],
             t.get("scene_context", ""), t.get("image_paths"),
-            sem,
+            sem, prompt_type=t.get("prompt_type", prompt_type),
+            temperature=t.get("temperature"),
         )
         for t in tasks
     ]

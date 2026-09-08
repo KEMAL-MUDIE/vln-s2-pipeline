@@ -17,6 +17,14 @@ Research findings (from v203 analysis):
   - 3-sentence rate ~38% optimal
   - Vocabulary diversity (go_past, pass_the, walk_toward) boosts model grounding
 
+v219 (opening-sentence implicit turns):
+  - v218 reduced unhandled-turn explicit language (1.97 vs GT=0.66)
+  - v219 extends to opening sentence: when non-sharp turn leads to known t0_room,
+    prefer "Exit the bedroom and walk into the hallway" over "Exit the bedroom and turn left."
+  - Applied in 3 patterns: (A) n_turns==1 closed-room exit, (B) r<0.28 merge,
+    (C) r<0.82 closed/open room exit. Probability 55-60% when conditions met.
+  - Expected avg_explicit_turns: ~1.3-1.5 (GT=0.66, v218=1.97)
+
 Usage:
   python metadata_reproducer.py                         # generate all 1839 episodes → v204
   python metadata_reproducer.py --version v205          # custom version tag
@@ -40,6 +48,101 @@ GT_PATH = "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unse
 PERFRAME_DIR = PIPELINE_ROOT / "outputs" / "gate3_perframe"
 LANDMARK_DIR = PIPELINE_ROOT / "outputs" / "gate3_landmarks"
 OUT_DIR = PIPELINE_ROOT / "outputs" / "datasets"
+
+# ── Stop landmark quality upgrade (v214) ──────────────────────────────────────
+
+# Floor surface features: low-quality stop markers (hard to navigate TO)
+_FLOOR_SURFACE_PATTERNS = ("mosaic", "floor tile", "tile floor", "area rug", "carpet", " rug", "floor mat")
+# Center-of-room furniture that is often misidentified as stop when goal is at room boundary
+_CENTER_ROOM_PATTERNS = ("pool table", "billiard table", "ping pong table", "air hockey table")
+# Architectural features that make better stop markers (boundary/landmark navigable)
+_ARCH_STOP_PATTERNS = (
+    "window", "arched window", "glass door", "glass doors", "french door", "french doors",
+    "sliding glass door", "sliding door", "archway", "arch ", "doorway", "door frame",
+    "entrance", "staircase", "stairs",
+)
+
+# ── Start landmark traversal verb (v215) ──────────────────────────────────────
+
+# Door/arch landmarks that the agent walks THROUGH (not past)
+_THROUGH_LM_PATTERNS = (
+    "door", "doorway", "gate", "arch ", "archway", "entrance", "gateway",
+    "opening", "threshold", "portal",
+)
+
+def _is_through_lm(lm: str) -> bool:
+    """True if lm is a door/archway/gate that the agent walks THROUGH, not past."""
+    lm_l = lm.lower()
+    return any(p in lm_l for p in _THROUGH_LM_PATTERNS)
+
+
+def _start_pass_verb(lm: str, rng, capitalized: bool = True) -> str:
+    """v215: Traversal verb for start landmark.
+    Door/arch landmarks → 'walk through the' (agent passes THROUGH).
+    Other landmarks → _pass_verb() (agent walks PAST).
+    Returns full phrase incl. 'the', e.g. 'Walk through the' or 'Walk past the'.
+    """
+    if lm and _is_through_lm(lm):
+        verb = rng.choice(["Walk", "Go"])
+        return (f"{verb} through the") if capitalized else (f"{verb.lower()} through the")
+    return _pass_verb(rng, capitalized=capitalized)
+
+def _is_floor_surface(lm: str) -> bool:
+    lm_l = lm.lower()
+    return any(p in lm_l for p in _FLOOR_SURFACE_PATTERNS)
+
+def _is_center_room_furniture(lm: str) -> bool:
+    lm_l = lm.lower()
+    return any(p in lm_l for p in _CENTER_ROOM_PATTERNS)
+
+def _is_arch_stop(lm: str) -> bool:
+    """True if landmark is an architectural boundary feature (good stop marker)."""
+    lm_l = lm.lower()
+    # Exclude things that aren't navigable destinations
+    if any(bad in lm_l for bad in ("ceiling", " wall", "floor lamp", "chandelier")):
+        return False
+    return any(p in lm_l for p in _ARCH_STOP_PATTERNS)
+
+def _best_arch_candidate(candidates: list) -> str | None:
+    """v215: From a list of candidates, return the best door/arch landmark for stop, or None."""
+    for c in candidates:
+        if c and _is_arch_stop(c) and not _is_floor_surface(c):
+            return c
+    return None
+
+
+def _upgrade_stop_lm(stop_lm: str, candidates: list) -> str:
+    """
+    v214: Upgrade stop_lm only when a clearly better stop landmark is available.
+
+    Rule 1: Floor surfaces (mosaic, rug, tile) → upgrade to architectural boundary if available.
+            Only upgrades to arch features (window, doorway, glass door); never upgrades to
+            ceiling/wall/overhead surfaces.
+    Rule 2: Pool/billiard table → upgrade to window/glass-door if available.
+            These are center-of-room furniture often misdetected when goal is at room boundary.
+    """
+    if not stop_lm:
+        return stop_lm
+
+    candidates = [c for c in candidates if c and c != stop_lm]
+
+    if _is_floor_surface(stop_lm):
+        # Upgrade ONLY to architectural boundary features (clear navigational landmarks)
+        arch_alts = [c for c in candidates if _is_arch_stop(c)]
+        if arch_alts:
+            return arch_alts[0]
+        # No arch alternative → keep floor feature (uncertain what to use instead)
+
+    elif _is_center_room_furniture(stop_lm):
+        # Only upgrade pool/billiard table → window/glass door type landmark
+        window_alts = [c for c in candidates if any(
+            w in c.lower() for w in ("window", "glass door", "glass doors", "french door", "french doors")
+        )]
+        if window_alts:
+            return window_alts[0]
+
+    return stop_lm  # keep original
+
 
 # ── Landmark sanitization ─────────────────────────────────────────────────────
 
@@ -262,6 +365,8 @@ def reproduce_instruction(
     elev_prims = [p for p in pa["primitives"] if p["type"] == "elevation"]
     n_turns = len(turn_prims)
     total_dist = pa["summary"].get("total_distance_m", 5.0)
+    # v212: initial turn from start_rotation (present in 82% of val_unseen episodes)
+    init_turn = pa.get("initial_turn")
 
     # Calculate distance of final straight segment (after last turn → stop)
     all_prims = pa["primitives"]
@@ -306,13 +411,44 @@ def reproduce_instruction(
         )
         start_extra = _clean_lm_list(start.get("landmarks") or [])[:2]
         goal_room = (goal.get("room") or "room").lower()
-        stop_lm = (
+        _raw_stop_lm = (
             _clean_lm(goal.get("stop_landmark"))
             or _clean_lm(lm_goal.get("stop_landmark"))
             or (_clean_lm_list(goal.get("landmarks") or []) + [goal_room])[0]
         )
+        # v214: upgrade floor features and pool/billiard tables to better stop markers
+        # when architectural alternatives (window, doorway, glass door) are available.
+        _stop_candidates = (
+            _clean_lm_list(goal.get("landmarks") or [])
+            + _clean_lm_list(lm_goal.get("landmarks") or [])
+        )
+        stop_lm = _upgrade_stop_lm(_raw_stop_lm, _stop_candidates)
         stop_desc = goal.get("stop_description", "")
         lm_dir_hint = lm_ctx.get("direction_hint", "")
+
+        # v214: Same start/goal room on long path → gate3 VLM detected wrong goal room.
+        # When path_dist > 4m, an R2R episode always crosses room boundaries.
+        # If the VLM reports start_room == goal_room for a long path, the goal room is wrong:
+        # the model would stop in the START room instead of the actual destination.
+        # Fix: override goal/stop to path-only defaults (generic room vocabulary).
+        # Keep start data (correctly detected) but use generic stop.
+        # v217: Exclude bedroom variants from Rule 3. Bedroom→bedroom paths are ambiguous:
+        # VLM can misidentify closet/bathroom as bedroom, but "bed" is still a useful visual
+        # anchor (on-path or legitimate bedroom suite). Bathroom/kitchen same-room is unambiguous.
+        _RULE3_ROOMS = CLOSED_ROOMS - {"bedroom", "guest room", "master bedroom"}
+        _SPECIFIC_ROOMS = _RULE3_ROOMS | STAIR_ROOMS | {"game room", "billiard room", "drawing room"}
+        _same_room_long_path = (
+            start_room.lower() in _SPECIFIC_ROOMS
+            and start_room.lower() == goal_room.lower()
+            and total_dist > 4.0
+        )
+        if _same_room_long_path:
+            goal_room = rng.choice(_PATH_ONLY_ROOMS)
+            # v215: prefer a door/arch candidate from goal frame instead of pure generic
+            _arch_override = _best_arch_candidate(_stop_candidates)
+            stop_lm = _arch_override if _arch_override else rng.choice(_PATH_ONLY_STOP)
+            stop_desc = ""
+            lm_dir_hint = ""
 
     # Merge perframe turn landmarks with path-analyzer turn directions (path is authoritative)
     turns = []
@@ -333,6 +469,25 @@ def reproduce_instruction(
         })
 
     sentences = []
+
+    # v216: Track previous room across turn handling (defined early — used in both opening and turn sections)
+    _prev_room = [start_room]
+
+    # ── v212: Initial turn phrase from start_rotation ─────────────────────────
+    # 82% of episodes have misalignment >20°; without this the agent walks away from path immediately.
+    # Merge into first sentence opening rather than standalone so sentence count stays calibrated.
+    _init_turn_prefix = ""  # prepended to first sentence verb if set
+    if init_turn:
+        td = init_turn["direction"]
+        angle = init_turn["angle_deg"]
+        if init_turn["is_around"]:  # ≥150°
+            _init_turn_prefix = "Turn around and "
+        elif angle >= 90:
+            _init_turn_prefix = f"Turn {td} and "
+        elif angle >= 45:
+            _init_turn_prefix = f"Turn {td} and "
+        else:  # 20-45°: gentle re-orientation, use "face" language
+            _init_turn_prefix = f"Turn slightly {td} and "
 
     # ── Helper: pick a room transition phrase ────────────────────────────────
     def _room_trans(room_trans_str: str, next_room: str) -> str:
@@ -378,7 +533,10 @@ def reproduce_instruction(
             stop_part = _stop_phrase(rng, stop_lm, goal_room)
             merged = f"{move_part} and {stop_part[0].lower()}{stop_part[1:]}"
             sentences.append(merged)
-            return " ".join(sentences)  # single sentence — skip rest of builder
+            result = " ".join(sentences)
+            if _init_turn_prefix and result:
+                result = _init_turn_prefix + result[0].lower() + result[1:]
+            return result  # single sentence — skip rest of builder
         # Straight path: aim for 2-3 sentences with explicit forward language
         r = rng.random()
         if not _has_context:
@@ -420,7 +578,7 @@ def reproduce_instruction(
                 ])
                 sentences.append(arrival)
         elif r < 0.35 and start_lm != start_room:
-            pass_v = _pass_verb(rng, capitalized=True)
+            pass_v = _start_pass_verb(start_lm, rng, capitalized=True)
             prep = rng.choice(["and continue through", "and walk into", "toward"])
             sentences.append(f"{pass_v} {start_lm} {prep} the {goal_room}.")
         elif r < 0.65:
@@ -429,7 +587,7 @@ def reproduce_instruction(
         elif r < 0.82:
             sentences.append(f"Go straight through the {start_room} and into the {goal_room}.")
         else:
-            pass_v = _pass_verb(rng, capitalized=True)
+            pass_v = _start_pass_verb(start_lm, rng, capitalized=True)
             sentences.append(f"{pass_v} {start_lm}.")
         # intermediate only for long paths with start_extra available (gate3 mode)
         if _has_context and total_dist > 5.0 and start_extra and rng.random() < 0.45:
@@ -438,20 +596,40 @@ def reproduce_instruction(
             sentences.append(f"{pass_v2} {cont_lm}.")
 
     elif n_turns == 1 and _is_closed(start_room) and rng.random() < 0.50:
-        # Classic exit-and-turn: "Exit the bedroom and turn left."
+        # Classic exit-and-turn: "Exit the bedroom and turn left [into the hallway]."
+        # v219: non-sharp turns with known destination room → prefer implicit movement language.
         exit_verb = rng.choice(["Exit", "Leave", "Walk out of"])
         td = turns[0]["direction"]
+        t0_room = (turns[0].get("room") or "").lower()
+        is_sharp_t0 = turns[0].get("sharp", False)
+        room_entry = f" into the {t0_room}" if (_has_context and t0_room and t0_room != start_room.lower()) else ""
+        _use_implicit_exit = _has_context and t0_room and t0_room != start_room.lower() and not is_sharp_t0
         # If post-turn straight is long, merge continuation into s1 or add separately
         if last_straight_m > 4.0 and goal_room and rng.random() < 0.5:
+            if _use_implicit_exit and rng.random() < 0.60:
+                move_v = rng.choice(["walk", "head", "go"])
+                sentences.append(f"{exit_verb} the {start_room} and {move_v} into the {t0_room}.")
+            else:
+                sentences.append(f"{exit_verb} the {start_room} and turn {td}{room_entry}.")
             cont_prep = rng.choice(["into", "through", "toward"])
-            sentences.append(f"{exit_verb} the {start_room} and turn {td}.")
             sentences.append(f"Walk {cont_prep} the {goal_room}.")
         elif last_straight_m > 4.0:
-            cont_prep = rng.choice(["and continue into", "and walk into", "and head into"])
-            sentences.append(f"{exit_verb} the {start_room} and turn {td} {cont_prep} the {goal_room}.")
+            if _use_implicit_exit and rng.random() < 0.60:
+                move_v = rng.choice(["walk", "head", "go"])
+                cont_prep = rng.choice(["and continue into", "and walk into", "and head into"])
+                sentences.append(f"{exit_verb} the {start_room} and {move_v} into the {t0_room}.")
+            else:
+                cont_prep = rng.choice(["and continue into", "and walk into", "and head into"])
+                sentences.append(f"{exit_verb} the {start_room} and turn {td} {cont_prep} the {goal_room}.")
         else:
-            sentences.append(f"{exit_verb} the {start_room} and turn {td}.")
+            if _use_implicit_exit and rng.random() < 0.60:
+                move_v = rng.choice(["walk", "head", "go"])
+                sentences.append(f"{exit_verb} the {start_room} and {move_v} into the {t0_room}.")
+            else:
+                sentences.append(f"{exit_verb} the {start_room} and turn {td}{room_entry}.")
         turns[0]["_handled"] = True
+        if _has_context and t0_room:
+            _prev_room[0] = t0_room
 
     elif n_turns == 1 and rng.random() < 0.42:
         # v206f: 1-sentence merge for n_turns==1 — contributes to GT 19% 1-sent target.
@@ -462,7 +640,7 @@ def reproduce_instruction(
         stop_raw = _stop_phrase(rng, stop_lm, goal_room)
         stop_frag = stop_raw[0].lower() + stop_raw[1:-1]  # lowercase + strip trailing period
         if start_lm and start_lm != start_room:
-            pv = _pass_verb(rng)
+            pv = _start_pass_verb(start_lm, rng, capitalized=False)
             opening = f"{pv} {start_lm}"
         elif _is_closed(start_room):
             ev = rng.choice(["Exit", "Leave"])
@@ -472,19 +650,48 @@ def reproduce_instruction(
             opening = f"{vb} the {start_room}"
         sentences.append(f"{opening}, {turn_frag}, and {stop_frag}.")
         turns[0]["_handled"] = True
-        return " ".join(sentences)  # single sentence — done
+        result = " ".join(sentences)
+        if _init_turn_prefix and result:
+            result = _init_turn_prefix + result[0].lower() + result[1:]
+        return result  # single sentence — done
 
     elif n_turns >= 1:
         r = rng.random()
         if r < 0.28 and start_lm != start_room:
             # v206e: merge back at 28% (lower merge→more sents). Only walk_past family.
+            # v215: door/arch landmarks use "walk through" instead of "walk past".
+            # v216: add room entry context when the merged first turn leads to a new room.
+            # v219: implicit movement when non-sharp turn leads to known destination room.
             td = turns[0]["direction"]
-            verb = rng.choice(["Walk past", "Walk straight past", "Walk past", "Walk past"])
-            lm_part = start_lm if rng.random() < 0.7 else start_room
-            sentences.append(f"{verb} the {lm_part} and turn {td}.")
+            t0_room = (turns[0].get("room") or "").lower()
+            is_sharp_t0 = turns[0].get("sharp", False)
+            room_entry = f" into the {t0_room}" if (_has_context and t0_room and t0_room != start_room.lower()) else ""
+            _use_implicit_r28 = _has_context and t0_room and t0_room != start_room.lower() and not is_sharp_t0
+            if _use_implicit_r28 and rng.random() < 0.55:
+                # Implicit: "Walk through the door into the kitchen" / "Walk past the sofa into the living room"
+                if _is_through_lm(start_lm):
+                    verb = rng.choice(["Walk through", "Go through"])
+                    prep = rng.choice(["into", "through"])
+                    sentences.append(f"{verb} the {start_lm} {prep} the {t0_room}.")
+                else:
+                    verb = rng.choice(["Walk past", "Walk straight past", "Walk past"])
+                    lm_part = start_lm if rng.random() < 0.7 else start_room
+                    prep = rng.choice(["into", "toward"])
+                    sentences.append(f"{verb} the {lm_part} {prep} the {t0_room}.")
+            else:
+                if _has_context and _is_through_lm(start_lm):
+                    verb = rng.choice(["Walk through", "Go through"])
+                    sentences.append(f"{verb} the {start_lm} and turn {td}{room_entry}.")
+                else:
+                    verb = rng.choice(["Walk past", "Walk straight past", "Walk past", "Walk past"])
+                    lm_part = start_lm if rng.random() < 0.7 else start_room
+                    sentences.append(f"{verb} the {lm_part} and turn {td}{room_entry}.")
             turns[0]["_handled"] = True
+            # Update _prev_room so subsequent turns see the correct previous room
+            if t0_room:
+                _prev_room[0] = t0_room
         elif r < 0.55:
-            pass_v = _pass_verb(rng, capitalized=True)
+            pass_v = _start_pass_verb(start_lm, rng, capitalized=True)
             # v205: enriched with destination context ~65% of time (+3 words)
             if goal_room and goal_room != start_room and rng.random() < 0.65:
                 prep = rng.choice(["toward", "into", "and into"])
@@ -509,25 +716,45 @@ def reproduce_instruction(
             if _is_closed(start_room):
                 exit_verb = rng.choice(["Exit", "Leave", "Walk out of"])
                 td = turns[0]["direction"]
-                sentences.append(f"{exit_verb} the {start_room} and turn {td}.")
+                t0_room = (turns[0].get("room") or "").lower()
+                is_sharp_t0 = turns[0].get("sharp", False)
+                room_entry = f" into the {t0_room}" if (_has_context and t0_room and t0_room != start_room.lower()) else ""
+                # v219: implicit exit for non-sharp turns with known destination room
+                if _has_context and t0_room and t0_room != start_room.lower() and not is_sharp_t0 and rng.random() < 0.60:
+                    move_v = rng.choice(["walk", "head", "go"])
+                    sentences.append(f"{exit_verb} the {start_room} and {move_v} into the {t0_room}.")
+                else:
+                    sentences.append(f"{exit_verb} the {start_room} and turn {td}{room_entry}.")
                 turns[0]["_handled"] = True
+                if t0_room:
+                    _prev_room[0] = t0_room
             elif rng.random() < 0.55:
                 # v206f: exit for open rooms — GT exit=18-25% applies to ALL room types
                 # ("Exit the living room and turn left" is common in GT R2R)
                 exit_verb = rng.choice(["Exit", "Leave", "Walk out of"])
                 td = turns[0]["direction"]
-                if goal_room and goal_room != start_room and rng.random() < 0.5:
+                t0_room = (turns[0].get("room") or "").lower()
+                is_sharp_t0 = turns[0].get("sharp", False)
+                # v219: implicit movement when non-sharp + known t0_room
+                if _has_context and t0_room and t0_room != start_room.lower() and not is_sharp_t0 and rng.random() < 0.55:
+                    move_v = rng.choice(["walk", "head", "go"])
+                    sentences.append(f"{exit_verb} the {start_room} and {move_v} into the {t0_room}.")
+                elif goal_room and goal_room != start_room and rng.random() < 0.5:
                     cont_prep = rng.choice(["into", "toward", "through"])
                     sentences.append(f"{exit_verb} the {start_room} and turn {td} {cont_prep} the {goal_room}.")
+                elif _has_context and t0_room and t0_room != start_room.lower():
+                    sentences.append(f"{exit_verb} the {start_room} and turn {td} into the {t0_room}.")
                 else:
                     sentences.append(f"{exit_verb} the {start_room} and turn {td}.")
                 turns[0]["_handled"] = True
+                if t0_room:
+                    _prev_room[0] = t0_room
             else:
-                pass_v = _pass_verb(rng, capitalized=True)
+                pass_v = _start_pass_verb(start_lm, rng, capitalized=True)
                 fwd_cont = rng.choice(["and keep going", "and proceed forward", "and continue"])
                 sentences.append(f"{pass_v} {start_lm} {fwd_cont}.")
         else:
-            pass_v = _pass_verb(rng, capitalized=True)
+            pass_v = _start_pass_verb(start_lm, rng, capitalized=True)
             if start_extra:
                 extra_lm = rng.choice(start_extra)
                 sentences.append(f"{pass_v} {start_lm} and {_pass_verb(rng)} {extra_lm}.")
@@ -590,11 +817,57 @@ def reproduce_instruction(
                 return f"{verb} toward the {dest}"
             return ""
 
+        # v218: Build turn fragment with room entry context — GT-aligned implicit language.
+        # GT instructions use "walk into the kitchen" (implicit) far more than "turn left into the kitchen" (explicit).
+        # GT avg explicit turns per instruction: 0.66; v217 had 2.04 (3× over-specified).
+        # Fix: for non-sharp room-change turns, prefer implicit movement verb ("walk into") over
+        # explicit "turn {direction}". Sharp turns (>75°) keep explicit because direction cue is critical.
+        # This reduces explicit turns while matching GT vocabulary distribution.
+        def _turn_frag_with_room(t: dict, prev_room: str, capital: bool = False) -> str:
+            """Gate3-mode turn fragment. v218: implicit movement for non-sharp room-change turns."""
+            td = t["direction"]
+            lm = t.get("landmark")
+            turn_room = (t.get("room") or "").lower().strip()
+            room_changed = turn_room and turn_room != prev_room.lower().strip()
+            is_sharp = t.get("sharp", False)  # angle > 75° — needs explicit direction
+            r = rng.random()
+            if room_changed and r < 0.70:
+                # v218: Non-sharp turns → 65% implicit ("walk into the room") for GT-style alignment.
+                # Sharp turns always use explicit direction — agent can't infer a 90°+ turn from room name alone.
+                use_implicit = (not is_sharp) and (rng.random() < 0.65)
+                if use_implicit:
+                    verb = rng.choice(["walk", "go", "head", "walk", "go"])  # weight walk/go
+                    if lm and _is_through_lm(lm) and rng.random() < 0.45:
+                        # Door/arch landmark → "walk through the doorway into the kitchen"
+                        part = f"{verb} through the {lm} into the {turn_room}"
+                    else:
+                        prep = rng.choice(["into", "through"])
+                        part = f"{verb} {prep} the {turn_room}"
+                else:
+                    # Explicit: "turn left [at the X] into the room"
+                    if lm and rng.random() < 0.40:
+                        part = f"turn {td} at the {lm} into the {turn_room}"
+                    else:
+                        prep = rng.choice(["into", "through"])
+                        part = f"turn {td} {prep} the {turn_room}"
+            elif lm and r < 0.45:
+                part = f"turn {td} at the {lm}"
+            else:
+                part = f"turn {td}"
+            return part[0].upper() + part[1:] if capital else part
+
         n_un = len(unhandled)
 
+        # v216: Use room-aware turn fragments in gate3 mode; path-only stays with rich frags.
+        # _prev_room already defined at top of sentences section — reuse it (tracks across opening+turns).
+        def _frag_fn_gate3(t: dict, capital: bool = False) -> str:
+            frag = _turn_frag_with_room(t, _prev_room[0], capital)
+            _prev_room[0] = (t.get("room") or _prev_room[0]).lower()
+            return frag
+
         # v209: For path-only mode, use richer turn fragments with continuation verbs.
-        # Gate3 mode uses original fragments (specific landmark references are better than generic rooms).
-        _frag_fn = _turn_frag_rich if not _has_context else _turn_frag
+        # Gate3 mode uses room-aware fragments (v216).
+        _frag_fn = _turn_frag_rich if not _has_context else _frag_fn_gate3
 
         if n_un == 1:
             # Single turn: merge with continuation 75% of time
@@ -787,6 +1060,18 @@ def reproduce_instruction(
 
     result = " ".join(sentences)
 
+    # v212: Prepend initial turn to first sentence (agent start orientation fix).
+    # Capitalizes prefix, lowercases first char of original first sentence.
+    if _init_turn_prefix and result:
+        first_sent_end = result.find(".")
+        if first_sent_end == -1:
+            first_sent_end = len(result)
+        first_sent = result[:first_sent_end + 1]
+        rest = result[first_sent_end + 1:]
+        # Merge: "Turn left and " + lowercase first letter of sentence
+        merged_first = _init_turn_prefix + first_sent[0].lower() + first_sent[1:]
+        result = (merged_first + rest).strip()
+
     # Trim if excessively long (>50 words)
     if len(result.split()) > 50:
         keep = [sentences[0]]
@@ -795,6 +1080,14 @@ def reproduce_instruction(
                 keep.append(s)
         keep.append(sentences[-1])
         result = " ".join(keep)
+        # Re-apply initial turn prefix after trim
+        if _init_turn_prefix and result:
+            first_sent_end = result.find(".")
+            if first_sent_end == -1:
+                first_sent_end = len(result)
+            first_sent = result[:first_sent_end + 1]
+            rest = result[first_sent_end + 1:]
+            result = (_init_turn_prefix + first_sent[0].lower() + first_sent[1:] + rest).strip()
 
     return result
 

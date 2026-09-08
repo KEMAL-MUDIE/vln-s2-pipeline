@@ -10,11 +10,16 @@ from typing import List, Dict, Any
 
 
 def quaternion_yaw_deg(qxyzw: List[float]) -> float:
-    """Extract yaw in degrees from [qx, qy, qz, qw] (Habitat convention, Y-up)."""
+    """Extract compass yaw in degrees from [qx, qy, qz, qw] (Habitat Y-up, -Z forward).
+
+    Convention: 0°=North(-Z), +90°=East(+X), -90°=West(-X) — matches heading_between_xz.
+    The raw atan2 formula gives the opposite sign (positive=West) because Habitat Y-up
+    TurnLeft rotates counter-clockwise. We negate to match compass convention.
+    """
     qx, qy, qz, qw = qxyzw
     siny_cosp = 2 * (qw * qy + qz * qx)
     cosy_cosp = 1 - 2 * (qy * qy + qz * qz)
-    return math.degrees(math.atan2(siny_cosp, cosy_cosp))
+    return -math.degrees(math.atan2(siny_cosp, cosy_cosp))  # negate: raw gives West=+90, we want East=+90
 
 
 def heading_between_xz(p1: List[float], p2: List[float]) -> float:
@@ -92,6 +97,24 @@ def analyze_path(
     primitives = []
     key_frame_indices = [0]  # always include start
 
+    # v213: Detect initial turn from start_rotation vs first segment heading.
+    # Use CORRECT compass convention (negate raw quaternion yaw — see quaternion_yaw_deg).
+    # Threshold 30°: GT annotators mention turns for ~60°+ misalignment; below 30° the
+    # model corrects visually. 30° catches genuine directional errors without false positives
+    # on episodes where annotators just said "walk forward" despite small angular offset.
+    initial_turn = None
+    if start_rotation is not None:
+        agent_yaw = quaternion_yaw_deg(start_rotation)
+        init_angle = signed_angle_diff(agent_yaw, headings[0])
+        if abs(init_angle) >= 30.0:
+            direction = "left" if init_angle < 0 else "right"
+            initial_turn = {
+                "direction": direction,
+                "angle_deg": round(abs(init_angle), 1),
+                "sharp": abs(init_angle) > 90,
+                "is_around": abs(init_angle) >= 150,
+            }
+
     current_seg_dist = 0.0
     current_seg_start = 0
 
@@ -147,6 +170,7 @@ def analyze_path(
 
     return {
         "primitives": primitives,
+        "initial_turn": initial_turn,  # v212: initial orientation turn, None if aligned
         "summary": {
             "total_distance_m": round(total_dist, 2),
             "n_left_turns": n_left,

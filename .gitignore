@@ -1,0 +1,40 @@
+# Generated outputs — too large for GitHub
+outputs/
+logs/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Checkpoints and large data files
+*.json.gz
+*.tar.gz
+*.ckpt
+*.pt
+*.pth
+*.h5
+*.pkl
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.venv
+venv/

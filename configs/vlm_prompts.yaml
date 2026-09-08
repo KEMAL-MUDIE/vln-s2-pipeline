@@ -62,6 +62,32 @@ instruction_generation_text_only: |
 
   Write ONLY the instruction text, nothing else:
 
+instruction_generation_gate3: |
+  You are a navigation instruction writer for the R2R (Room-to-Room) VLN dataset.
+
+  Write a concise, natural navigation instruction for the path below.
+  Match the style of real R2R human instructions: landmark-focused, room-transition-based, minimal explicit turn commands.
+
+  PATH:
+  {motion_sequence}
+
+  RULES:
+  - 1-4 sentences, 12-40 words total
+  - Use room transitions ("walk into the kitchen", "go through the doorway") instead of "turn left/right" whenever possible
+  - Mention at most 2 specific landmarks as navigation waypoints
+  - If given an Initial facing direction, START the instruction with that action (e.g., "Turn left and...")
+  - MUST include a stop condition: "stop", "wait", "halt", or "stand" near the goal landmark
+  - Do NOT list every turn — compress minor turns into room-transition phrases
+
+  STYLE REFERENCE (do NOT copy — style only):
+  - "Exit the bedroom and turn left. Walk past the gray couch and stop near the rug."
+  - "Walk up the stairs. Follow the hallway and go through the door. Stop at the window."
+  - "Go straight through the living room and past the pool. Stop at the far corner of the bar."
+  - "Walk into the kitchen through the doorway. Stop near the island at the far end."
+  - "Turn right at the top of the stairs. Walk toward the closet and stop at the small window."
+
+  Write ONLY the instruction text:
+
 # Quality requirements (used by quality_filter.py)
 quality:
   min_words: 10
