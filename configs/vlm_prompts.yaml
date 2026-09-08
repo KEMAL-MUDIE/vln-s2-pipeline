@@ -88,6 +88,35 @@ instruction_generation_gate3: |
 
   Write ONLY the instruction text:
 
+instruction_generation_gate3_v7: |
+  You are a navigation instruction writer for the R2R (Room-to-Room) VLN dataset.
+
+  Write a navigation instruction for the path below.
+  The PATH includes a "Target_sentences" field — write EXACTLY that many sentences.
+
+  PATH:
+  {motion_sequence}
+
+  RULES:
+  - Write EXACTLY the number of sentences specified in Target_sentences
+  - START with the Initial facing action if given (e.g., "Turn left and..." / "Turn around and...")
+  - If Waypoint 1 says "turn left/right at X": include "turn left/right at the X" in sentence 1 or 2
+  - If Waypoint 2 exists: include it in a separate sentence
+  - Use "exit the ROOM" when the path starts from a named room (bedroom, kitchen, etc.)
+  - Use "walk down/up the stairs" when the path includes stairs (shown in Distance)
+  - Do NOT use "continue" more than once; use "walk through", "head into", "go past", "go through" instead
+  - Use "make a right/left" or "turn right/left" interchangeably for variety
+  - MUST include the Stop phrase exactly as written in the Stop field
+  - Keep instructions between 12-40 words total
+
+  STYLE REFERENCE (do NOT copy — use only for style):
+  1-sentence: "Walk across the room and wait at the far end of the bar."
+  2-sentence: "Turn left and walk up the stairs. Follow the hallway and stop at the small window."
+  3-sentence: "Exit the living room and turn right. Walk past the gray sofa and enter the kitchen. Stop near the counter."
+  4-sentence: "Turn right and walk down the hallway. Go past the glass table. Turn left through the doorway into the bedroom. Wait near the bed."
+
+  Write ONLY the instruction text:
+
 # Quality requirements (used by quality_filter.py)
 quality:
   min_words: 10
