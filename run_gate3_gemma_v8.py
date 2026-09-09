@@ -50,6 +50,8 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 VAL_UNSEEN_PATH = "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen.json.gz"
+# Canonical vocab source — any previously evaluated file that has instruction_vocab
+VOCAB_SOURCE_PATH = "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v24.json.gz"
 GATE3_PERFRAME_DIR = ROOT / "outputs" / "gate3_perframe"
 LANDMARK_DIR = ROOT / "outputs" / "gate3_landmarks"
 CHECKPOINT_PATH = ROOT / "outputs" / "gate3_gemma_v8_checkpoint.json"
@@ -529,8 +531,12 @@ async def main():
               f"({stats['split_4s_success']/stats['split_4s_attempts']*100:.1f}%)")
 
     if out_episodes:
+        # Load instruction_vocab from canonical source (Habitat requires this field)
+        with gzip.open(VOCAB_SOURCE_PATH, "rt") as f:
+            vocab_data = json.load(f)
         out_data = dict(data)
         out_data["episodes"] = out_episodes
+        out_data["instruction_vocab"] = vocab_data.get("instruction_vocab", {})
         save_dataset(out_data, OUTPUT_PATH)
         print(f"\n  Saved: {OUTPUT_PATH}")
 

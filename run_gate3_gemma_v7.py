@@ -48,6 +48,7 @@ ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT))
 
 VAL_UNSEEN_PATH = "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen.json.gz"
+VOCAB_SOURCE_PATH = "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v24.json.gz"
 GATE3_PERFRAME_DIR = ROOT / "outputs" / "gate3_perframe"
 LANDMARK_DIR = ROOT / "outputs" / "gate3_landmarks"
 CHECKPOINT_PATH = ROOT / "outputs" / "gate3_gemma_v7_checkpoint.json"
@@ -413,8 +414,11 @@ async def main():
         print(f"    {s} sent: {c} ({c/n*100:.1f}%)  [GT target: 1s=18.9%, 2s=33.8%, 3s=31.0%, 4s=11.7%]")
 
     if out_episodes:
+        with gzip.open(VOCAB_SOURCE_PATH, "rt") as f:
+            vocab_data = json.load(f)
         out_data = dict(data)
         out_data["episodes"] = out_episodes
+        out_data["instruction_vocab"] = vocab_data.get("instruction_vocab", {})
         save_dataset(out_data, OUTPUT_PATH)
         print(f"\n  Saved: {OUTPUT_PATH}")
 
