@@ -1,6 +1,146 @@
-# VLN S2 Pipeline — Auto-Annotator for Vision-Language Navigation
+# VLN S2 Pipeline — Complete Auto-Annotator for Vision-Language Navigation
 
-Auto-annotator for the [R2R (Room-to-Room)](https://bringmeaspoon.org/) VLN dataset used in the **ChronoNav / InternVLA-N1-DualVLN** system. Generates natural navigation instructions from path geometry and visual scene context, replacing or augmenting human annotations.
+Two complementary annotation systems for the **ChronoNav / InternVLA-N1-DualVLN** pipeline:
+
+1. **Complete Auto-Annotator** (`complete_auto_annotator.py`) — generates full navigation metadata from *any* input source (ROS2 bag, video, image directory, or Habitat sim episode) using Gemma 4 31B vision understanding.
+2. **Metadata Improver** (ChronoNav instruction sibling substitution) — post-hoc improvement of existing R2R instructions using empirical failure/success analysis across eval runs.
+
+---
+
+## Complete Auto-Annotator
+
+### What It Does
+
+Given a navigation recording in any format, the complete auto-annotator:
+- Extracts frames and odometry/path data
+- Identifies key landmarks at start, turns, and goal using **Gemma 4 31B vision** (vLLM)
+- Generates a natural language navigation instruction grounded in what the robot actually sees
+- Outputs a complete metadata JSON with the full annotation schema
+
+### Input Types
+
+| Input | Flag | Requires |
+|-------|------|---------|
+| ROS2 bag file | `--rosbag /path/to.bag` | ROS2 Jazzy + rosbag2_py |
+| Video file (mp4/avi) | `--video /path/to.mp4` | opencv-python |
+| Image directory | `--images /path/to/frames/` | optional `--odom-file poses.json` |
+| Habitat sim episode | `--sim-episode <id>` | GT dataset + Gate1 rendered frames |
+| Batch sim episodes | `--sim-episode-range 0 99` | GT dataset + Gate1 rendered frames |
+
+### Output Schema
+
+```json
+{
+  "episode_id": 0,
+  "source_type": "rosbag | video | images | sim",
+  "source_path": "/path/to/input",
+  "scene_id": "realworld/unknown",
+  "start_position": [x, y, z],
+  "end_position": [x, y, z],
+  "start_rotation": [qx, qy, qz, qw],
+  "reference_path": [[x,y,z], ...],
+  "goals": [{"position": [x,y,z], "radius": 3.0}],
+  "info": {"geodesic_distance": float, "path_length_m": float},
+  "path_analysis": {
+    "primitives": [{"type": "straight|left_turn|right_turn|stop", ...}],
+    "summary": {...},
+    "motion_text": "Walk forward, turn left, stop near ...",
+    "key_frame_indices": [0, 5, 12, 18]
+  },
+  "rendered_frames": ["/path/to/frame_0000_rgb.png", ...],
+  "frame_timestamps": [0.0, 0.5, 1.0, ...],
+  "n_frames": 20,
+  "landmark_annotations": {
+    "per_frame": {
+      "0":  {"room": "hallway",    "landmarks": ["wooden door", "rug"], "direction": "straight"},
+      "5":  {"room": "living room","landmarks": ["couch", "fireplace"], "direction": "left"},
+      "18": {"room": "kitchen",    "landmarks": ["island", "counter"],  "direction": "straight"}
+    },
+    "scene_context": {"room": "hallway", "landmarks": [...], "direction": "straight"},
+    "goal_landmark": {"description": "beside the kitchen island"},
+    "n_frames_annotated": 3
+  },
+  "generated_instruction": {
+    "text": "Walk through the hallway and turn left at the couch. Stop beside the kitchen island.",
+    "generator": "cyankiwi/gemma-4-31B-it-AWQ-4bit",
+    "version": "3.0-complete",
+    "quality_ok": true
+  },
+  "odom_raw": [...],
+  "_annotation_version": "3.0-complete",
+  "_annotation_sources": ["gate2_path_analyzer", "gate3_gemma4_scene_description", "gate4_gemma4_31b_instruction"],
+  "_processing_time_s": 4.2
+}
+```
+
+### Quick Start
+
+```bash
+cd /home/kemal/VLNav/s2_pipeline_new
+
+# From ROS2 bag (real Scout robot):
+python3 complete_auto_annotator.py --rosbag /data/scout_run_001.bag --episode-id 1
+
+# From video file:
+python3 complete_auto_annotator.py --video /data/kitchen_tour.mp4 \
+    --start-pos 0,0,0 --end-pos 5.2,0,3.1 --episode-id 2
+
+# From image directory + waypoints file:
+python3 complete_auto_annotator.py --images /data/frames/ \
+    --waypoints /data/poses.json --episode-id 3
+
+# From Habitat sim episode (requires rendered frames):
+python3 complete_auto_annotator.py --sim-episode 42
+
+# Batch: sim episodes 0-99:
+python3 complete_auto_annotator.py --sim-episode-range 0 99 \
+    --output outputs/complete_metadata_new/
+
+# Path-analysis only (no vLLM calls):
+python3 complete_auto_annotator.py --rosbag /data/run.bag --no-vision
+```
+
+### Architecture
+
+```
+INPUT SOURCE
+  rosbag ──┐
+  video  ──┼── [Gate 8 Adapter] → frames/ + poses.json
+  images ──┤                           │
+  sim    ──┘                           ▼
+                              [Gate 2: Path Analyzer]
+                          motion primitives, key frame indices
+                                        │
+                                        ▼
+                              [Gate 3: Gemma Vision]
+                           room type, landmarks per key frame
+                          vLLM @ http://10.77.32.231:8000/v1
+                                        │
+                                        ▼
+                              [Gate 4: Gemma Instruction]
+                         natural language navigation instruction
+                          grounded in actual visual observations
+                                        │
+                                        ▼
+                           complete_metadata/episode_XXXXXX.json
+                            (full schema — all sources unified)
+```
+
+### vLLM Gemma Endpoint
+
+- **URL**: `http://10.77.32.231:8000/v1`
+- **Model**: `cyankiwi/gemma-4-31B-it-AWQ-4bit`
+- Override with `--vllm-url http://your-server:8000/v1`
+
+---
+
+## Metadata Improver (ChronoNav Instruction Substitution)
+
+The second system improves *existing* R2R episode instructions by finding sibling annotations that succeed more consistently across evaluation runs. This is a post-hoc improvement pipeline, not a generative annotator.
+
+See `auto_annotator.py` and the ChronoNav eval chain for details.
+
+---
 
 ## Auto-Annotator Versions
 
