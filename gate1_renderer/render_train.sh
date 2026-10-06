@@ -35,7 +35,7 @@ docker rm -f vlnav_gate1_train_renderer 2>/dev/null || true
 
 docker run --rm \
   --name vlnav_gate1_train_renderer \
-  --gpus '"device=2"' \
+  --gpus all \
   -e CUDA_VISIBLE_DEVICES=0 \
   -e HABITAT_SIM_EGL_DEVICE_ID=0 \
   -e PYTHONPATH="/workspace/InternNav/third_party/habitat-sim/src_python:/workspace/InternNav/third_party/habitat-sim/build/cp311-cp311-linux_x86_64/RelWithDebInfo/lib:/workspace/InternNav/third_party/habitat-sim/build/cp311-cp311-linux_x86_64/deps/magnum-bindings/src/python" \
