@@ -1,0 +1,106 @@
+# =============================================================================
+# Annotator Config v264 — "Early Loose" style
+# Corresponding eval result: SR=65.14% (327/502 eps) on val_unseen
+# Strategy: ChronoNav val_unseen base + VLM-annotated seen/train
+# =============================================================================
+# PARAMETER DOCUMENTATION — what each setting does and what to change when:
+# -----------------------------------------------------------------------------
+
+version: "3.0-v264"
+# version: string label embedded in each output episode. Change to track which
+# annotator run produced a file. Convention: "3.0-v{eval_version}".
+
+# ── vLLM Endpoint ─────────────────────────────────────────────────────────────
+vllm:
+  base_url: "http://10.77.32.231:8000/v1"
+  # base_url: change if running vLLM on a different host/port
+
+  model: "cyankiwi/gemma-4-31B-it-AWQ-4bit"
+  # model: the VLM used for Gate3 (scene description) and Gate4 (instruction gen).
+  # AWQ-4bit = quantized for speed. Switch to full precision for higher quality
+  # at the cost of ~4x slower inference.
+
+  api_key: "token-abc123"
+  # api_key: vLLM server auth token. Must match --api-key on the server.
+
+# ── Gate 3: Per-Frame Scene Description ───────────────────────────────────────
+gate3:
+  max_tokens: 120
+  # max_tokens: token budget for scene description per frame.
+  # Increase to 150-200 if you want longer, more detailed descriptions.
+  # Decrease to 80 to speed up at cost of description quality.
+
+  temperature: 0.6
+  # temperature (v264 = 0.6 — "loose/creative"):
+  # EFFECT: higher temperature → more varied language, less repetitive descriptions.
+  # TRADEOFF: too high (>0.8) → incoherent descriptions; too low (<0.3) → generic.
+  # Range guidance: 0.3=conservative, 0.4=standard, 0.5=balanced, 0.6=diverse.
+
+# ── Gate 4: Instruction Generation ────────────────────────────────────────────
+gate4:
+  max_tokens: 120
+  # max_tokens: token budget for the final navigation instruction.
+  # 120 is ~40 words. Increase to 180 for longer multi-sentence instructions.
+
+  temperature: 0.6
+  # temperature for instruction generation (same tradeoffs as gate3).
+  # v264 uses 0.6 → more varied but occasionally imprecise phrasing.
+
+  max_retries: 3
+  # max_retries: how many times to re-try if quality check fails.
+  # Each retry bumps temperature +0.1. Setting to 5 catches more bad outputs
+  # but slows processing ~50%.
+
+# ── Quality Filter (Gate 4 output) ────────────────────────────────────────────
+quality:
+  min_words: 6
+  # min_words: minimum word count for the generated instruction.
+  # EFFECT: below this → marked quality_fail, retry. v264=6 is very permissive.
+  # Increase to 8-12 to reject short/incomplete instructions.
+
+  max_words: 80
+  # max_words: instructions longer than this are trimmed or retried.
+
+  require_stop_condition: true
+  # require_stop_condition: instruction must contain one of:
+  #   stop, wait, stand, remain, halt
+  # EFFECT: ensures the robot knows when to finish the path.
+  # Set to false ONLY for debugging — nav instructions without a stop are invalid.
+
+  require_landmark: false
+  # require_landmark: if true, instruction must reference a room/object name.
+  # v264=false (permissive). Set to true for stricter quality — see v278.
+
+# ── Parallelism ────────────────────────────────────────────────────────────────
+workers: 8
+# workers: parallel threads hitting the vLLM endpoint.
+# EFFECT: higher = faster processing, more load on vLLM server.
+# TRADEOFF: >12 may cause vLLM timeout errors. Reduce to 4 if errors occur.
+# Recommended: 8 for a dedicated vLLM server, 4 if sharing with other jobs.
+
+# ── Output Paths ──────────────────────────────────────────────────────────────
+output:
+  base_dir: "outputs/annotated_datasets_top5"
+  # base_dir: root of all version outputs, relative to s2_pipeline_new/.
+
+  val_unseen:
+    # NOTE: val_unseen for ChronoNav versions uses the pre-built ChronoNav
+    # dataset (sibling substitution). The auto-annotator produces metadata;
+    # the final .json.gz uses the ChronoNav instruction set.
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v264.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/unseen_v264_meta"
+    dataset_out: "outputs/annotated_datasets_top5/unseen_v264.json.gz"
+
+  val_seen:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_seen/val_seen.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/seen_v264_meta"
+    dataset_out: "outputs/annotated_datasets_top5/seen_v264.json.gz"
+    frames_dir: "outputs/rendered_frames_val_seen"
+
+  train:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/train/train.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/train_v264_meta"
+    dataset_out: "outputs/annotated_datasets_top5/train_v264.json.gz"
+    frames_dir: "outputs/rendered_frames_train"
+    # STATUS: train frames not yet rendered. Run gate1_renderer/render_train.sh
+    # after current eval chain completes (GPU2 becomes free).

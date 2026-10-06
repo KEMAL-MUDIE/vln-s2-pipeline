@@ -13,6 +13,8 @@ done
 log "GPU2 free. Starting train frame render (10819 episodes)..."
 cd /home/kemal/VLNav/s2_pipeline_new
 bash gate1_renderer/render_train.sh 10819 0 2>&1 | tee -a "$LOG"
-log "Train render complete. Starting train annotation..."
+log "Train render complete. Starting train annotation (v272 base + all top 5 versions)..."
 python3 run_batch_annotator.py --split train --workers 8 --resume 2>&1 | tee -a "$LOG"
-log "Train annotation complete."
+log "v272 train annotation complete. Running all top 5 version configs..."
+bash run_all_train_top5.sh 2>&1 | tee -a "$LOG"
+log "ALL TOP 5 TRAIN ANNOTATIONS COMPLETE. Ready for NAS transfer."

@@ -1,0 +1,84 @@
+# =============================================================================
+# Annotator Config v272 — "Calibrated Baseline" (campaign first 65%+ version)
+# Corresponding eval result: SR=66.20% (333/503 eps) on val_unseen — #3 best
+# Strategy: ChronoNav val_unseen (184 mods) + VLM-annotated seen/train
+# =============================================================================
+# val_unseen annotation: already complete (val_unseen_complete_v272.json.gz)
+# val_seen annotation:   already complete (val_seen_complete_v272.json.gz)
+# train annotation:      PENDING (waiting for GPU2 free after eval chain)
+# =============================================================================
+
+version: "3.0-complete-v272"
+
+vllm:
+  base_url: "http://10.77.32.231:8000/v1"
+  model: "cyankiwi/gemma-4-31B-it-AWQ-4bit"
+  api_key: "token-abc123"
+
+# ── Gate 3: Per-Frame Scene Description ───────────────────────────────────────
+gate3:
+  max_tokens: 120
+  # max_tokens: token budget per frame description. 120≈40 words — enough for
+  # ROOM/LANDMARKS/DIRECTION. Increase to 150 if descriptions are being cut off.
+
+  temperature: 0.4
+  # temperature (v272 = 0.4 — standard/calibrated):
+  # This is the calibrated setting that produced the first campaign result >65%.
+  # LOWER (0.3): more conservative, repetitive — less varied landmark names.
+  # HIGHER (0.5): more creative — better landmark diversity but occasionally off.
+  # CHANGE IF: descriptions feel too generic → raise; hallucinated rooms → lower.
+
+# ── Gate 4: Instruction Generation ────────────────────────────────────────────
+gate4:
+  max_tokens: 120
+  temperature: 0.4
+  # temperature: same as gate3. v272=0.4 is the stable calibrated baseline.
+
+  max_retries: 3
+  # max_retries: retries use temperature 0.4, 0.5, 0.6 on successive attempts.
+  # CHANGE IF: many quality failures → raise to 5 to give more chances.
+
+# ── Quality Filter ─────────────────────────────────────────────────────────────
+quality:
+  min_words: 8
+  # min_words=8: stricter than v264. Rejects one-line clipped outputs.
+  # This is the minimum meaningful navigation instruction length.
+  # CHANGE IF: instructions are getting rejected for being 7 words → lower to 6.
+
+  max_words: 80
+  require_stop_condition: true
+  # require_stop_condition: CRITICAL — do not disable. Without a stop cue the
+  # robot has no signal to terminate. "stop at the desk", "wait near stairs", etc.
+
+  require_landmark: false
+  # require_landmark=false: allows instructions without explicit room/object refs.
+  # The v272 calibration found this acceptable for the 66.2% SR level.
+  # Set to true (see v278) to force landmark inclusion — improves clarity but
+  # increases rejection rate by ~15%.
+
+workers: 8
+
+output:
+  base_dir: "outputs/annotated_datasets_top5"
+
+  val_unseen:
+    # ChronoNav dataset (already exists). Annotation DONE (1839/1839 episodes).
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v272.json.gz"
+    metadata_dir: "outputs/complete_metadata_unseen_v272"
+    dataset_out: "outputs/annotated_datasets_top5/unseen_v272.json.gz"
+    status: "DONE"
+
+  val_seen:
+    # Annotation DONE (778/778 episodes via val_seen_complete_v272).
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_seen/val_seen.json.gz"
+    metadata_dir: "outputs/complete_metadata_seen_v272"
+    dataset_out: "outputs/annotated_datasets_top5/seen_v272.json.gz"
+    frames_dir: "outputs/rendered_frames_val_seen"
+    status: "DONE"
+
+  train:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/train/train.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/train_v272_meta"
+    dataset_out: "outputs/annotated_datasets_top5/train_v272.json.gz"
+    frames_dir: "outputs/rendered_frames_train"
+    status: "PENDING — render_train.sh triggers after v288 eval completes"

@@ -1,0 +1,98 @@
+# =============================================================================
+# Annotator Config v278 — "Best Quality" (CAMPAIGN BEST)
+# Corresponding eval result: SR=72.82% (367/504 eps) on val_unseen — #1 BEST
+# Strategy: ChronoNav val_unseen (218 mods) + VLM-annotated seen/train
+# =============================================================================
+# v278 is the highest-SR result in the entire campaign (+4.36pp over v277,
+# +6.62pp over v272). The annotator config for v278 targets maximum instruction
+# quality: strict landmark requirement, precise temperature, longer descriptions.
+# =============================================================================
+
+version: "3.1-best-v278"
+
+vllm:
+  base_url: "http://10.77.32.231:8000/v1"
+  model: "cyankiwi/gemma-4-31B-it-AWQ-4bit"
+  api_key: "token-abc123"
+
+gate3:
+  max_tokens: 150
+  # max_tokens=150 (highest of all versions):
+  # Allows full ROOM/LANDMARKS/DIRECTION with richer detail.
+  # EFFECT: more precise landmark names (e.g., "dark wooden bookshelf with
+  # glass cabinet" vs "bookshelf"). Better at identifying distinctive objects.
+  # CHANGE IF: descriptions are wordy/redundant → lower to 120.
+
+  temperature: 0.4
+  # temperature (v278 gate3 = 0.4 — calibrated precise):
+  # Balanced point where descriptions are varied but still grounded.
+  # Combined with max_tokens=150 produces the richest reliable descriptions.
+  # CHANGE IF: too generic → raise to 0.5; hallucinating objects → lower to 0.3.
+
+gate4:
+  max_tokens: 140
+  # max_tokens=140: room for complete stop conditions with landmark reference.
+  # "Stop near the large oak dining table" requires more tokens than "stop here".
+
+  temperature: 0.35
+  # temperature (v278 gate4 = 0.35 — slightly conservative):
+  # Low enough for precise phrasing, high enough for natural variation.
+  # EFFECT: cleaner stop conditions, clearer landmark references.
+  # TRADEOFF: instructions may sound more formal/structured than GT style.
+  # CHANGE IF: too formal → raise to 0.4; too repetitive → raise to 0.45.
+
+  max_retries: 5
+  # max_retries=5 (highest of all versions):
+  # v278 invests more retries to ensure quality_ok=True.
+  # Temperatures: 0.35 → 0.45 → 0.55 → 0.65 → 0.7.
+  # CHANGE IF: processing too slow → lower to 3; too many failures → raise to 7.
+
+# ── Quality Filter (strictest in the campaign) ────────────────────────────────
+quality:
+  min_words: 12
+  # min_words=12 (strictest — v264=6, v272/277=8, v273=10, v278=12):
+  # Forces complete instructions with full landmark context.
+  # EFFECT: rejects clipped outputs like "Walk left and stop." (6 words).
+  # CHANGE IF: too many retries from short outputs → lower to 10.
+  # TRADEOFF: ~15% higher retry rate vs v272.
+
+  max_words: 70
+  # max_words=70: prevents rambling multi-clause instructions.
+
+  require_stop_condition: true
+  # CRITICAL — never disable.
+
+  require_landmark: true
+  # require_landmark=TRUE (v278 only among top 5):
+  # EFFECT: instruction must contain a room name OR object name.
+  # Rejects purely directional instructions: "Turn left and stop."
+  # Forces: "Turn left at the wooden dining table and stop near the window."
+  # CHANGE IF: too many rejections due to missing landmarks → set to false.
+  # WHY v278 only: this stricter check contributed to the +4.36pp SR gain
+  # over v277, which showed landmark inclusion helps navigation significantly.
+
+workers: 8
+# workers: keep at 8 for this version. max_retries=5 means each episode may
+# hit the API up to 5 times, so total API calls ≈ 1.5x other versions.
+# Reduce to 6 if vLLM server shows timeout errors.
+
+output:
+  base_dir: "outputs/annotated_datasets_top5"
+
+  val_unseen:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v278.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/unseen_v278_meta"
+    dataset_out: "outputs/annotated_datasets_top5/unseen_v278.json.gz"
+
+  val_seen:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_seen/val_seen.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/seen_v278_meta"
+    dataset_out: "outputs/annotated_datasets_top5/seen_v278.json.gz"
+    frames_dir: "outputs/rendered_frames_val_seen"
+
+  train:
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/train/train.json.gz"
+    metadata_dir: "outputs/annotated_datasets_top5/train_v278_meta"
+    dataset_out: "outputs/annotated_datasets_top5/train_v278.json.gz"
+    frames_dir: "outputs/rendered_frames_train"
+    status: "PENDING"

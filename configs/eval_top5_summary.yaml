@@ -1,0 +1,102 @@
+# =============================================================================
+# Top 5 Annotator Versions — Eval SR Summary
+# InternVLA-N1-DualVLN on val_unseen (Habitat-CE discrete action)
+# GT baseline (v69): SR=63.57% (1839 eps, full run)
+# =============================================================================
+
+campaign_best:
+  version: v278
+  sr_pct: 72.82
+  succ: 367
+  total_eps: 504
+
+gt_baseline:
+  version: v69
+  sr_pct: 63.57
+  total_eps: 1839
+
+rankings:
+  - rank: 1
+    version: v278
+    sr_pct: 72.82
+    succ_total: "367/504"
+    mods_vs_gt: 218
+    scene_mods: {2azQ: 43, EU6: 15, QUCTc: 32, 8194: 0}
+    avg_instruction_words: 26.6
+    annotator_config: configs/annotator_v278.yaml
+    eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v278.py"
+    eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v278.sh"
+    strategy: "ChronoNav sibling sub — 4-run + 3-run confirmed wins"
+    key_changes:
+      - "ep315/405/197 (traj=1194/1648/802, 4-run wins)"
+      - "ep44/1758/444 (traj=168/6979/1780, 3-run wins)"
+      - "13x3-run wins carried from v277"
+    dataset_val_unseen: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v278.json.gz"
+
+  - rank: 2
+    version: v277
+    sr_pct: 68.46
+    succ_total: "343/501"
+    mods_vs_gt: 212
+    scene_mods: {2azQ: 39, EU6: 13, QUCTc: 32, 8194: 0}
+    avg_instruction_words: 26.5
+    annotator_config: configs/annotator_v277.yaml
+    eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v277.py"
+    eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v277.sh"
+    strategy: "ChronoNav sibling sub — 13x3-run confirmed wins"
+    key_changes:
+      - "ep70/71/166/176/277/347/803/860/1078/1214/1565/1566/1608 (13x3-run wins)"
+
+  - rank: 3
+    version: v272
+    sr_pct: 66.20
+    succ_total: "333/503"
+    mods_vs_gt: 184
+    scene_mods: {2azQ: 24, EU6: 7, QUCTc: 29, 8194: 0}
+    avg_instruction_words: 26.5
+    avg_ne_m: 4.048
+    annotator_config: configs/annotator_v272.yaml
+    eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v272.py"
+    eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v272.sh"
+    strategy: "ChronoNav accumulated — direction fixes + landmark additions"
+    key_changes:
+      - "ep175/448/810/1235/1373 (7-run wins)"
+      - "ep421/455 (5-run) + ep221/1745 (4-run)"
+      - "Direction corrections (20 eps) + landmark additions (38 eps)"
+    auto_annotation_status:
+      val_unseen: "DONE (1839/1839 episodes)"
+      val_seen: "DONE (778/778 episodes)"
+      train: "PENDING — GPU2 free after eval chain v288"
+
+  - rank: 4
+    version: v273
+    sr_pct: 65.15
+    succ_total: "329/505"
+    mods_vs_gt: 188
+    scene_mods: {2azQ: 27, EU6: 8, QUCTc: 29, 8194: 0}
+    avg_instruction_words: 26.6
+    annotator_config: configs/annotator_v273.yaml
+    eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v273.py"
+    eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v273.sh"
+    strategy: "ChronoNav sibling sub — 2x2-run wins over v272"
+
+  - rank: 5
+    version: v264
+    sr_pct: 65.14
+    succ_total: "327/502"
+    mods_vs_gt: 185
+    scene_mods: {2azQ: 27, EU6: 6, QUCTc: 28, 8194: 0}
+    avg_instruction_words: 26.5
+    annotator_config: configs/annotator_v264.yaml
+    eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v264.py"
+    eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v264.sh"
+    strategy: "ChronoNav sibling sub — early direction+landmark corrections"
+
+vlm_annotator_pending:
+  version: v289
+  sr_pct: null
+  strategy: "Full VLM auto-annotation (Gemma 4-31B AWQ, Gate1-4 pipeline)"
+  mods_vs_gt: 1839
+  eval_config_py: "../habitat_eval/configs/habitat_dual_system_cvml07_valUNseen_v289.py"
+  eval_run_script: "../habitat_eval/scripts/run_eval_valunseen_v289.sh"
+  note: "First run of full auto-annotation — eval result TBD"
