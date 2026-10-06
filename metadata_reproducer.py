@@ -25,6 +25,11 @@ v219 (opening-sentence implicit turns):
     (C) r<0.82 closed/open room exit. Probability 55-60% when conditions met.
   - Expected avg_explicit_turns: ~1.3-1.5 (GT=0.66, v218=1.97)
 
+v220 (higher implicit rate for interior turns):
+  - _turn_frag_with_room: room_changed branch threshold 0.70→0.85, implicit prob 0.65→0.80
+  - Combined: 45.5%→68% implicit rate for room-changing non-sharp interior turns
+  - Expected avg_explicit_turns: ~1.2-1.4 (GT=0.66, v219=1.87)
+
 Usage:
   python metadata_reproducer.py                         # generate all 1839 episodes → v204
   python metadata_reproducer.py --version v205          # custom version tag
@@ -347,19 +352,22 @@ def reproduce_instruction(
     perframe: dict,
     landmark: dict,
     rng: random.Random,
+    turn_threshold: float = 45.0,
 ) -> str:
     """
     Assemble a GT-style navigation instruction from metadata.
     Uses path_analyzer for authoritative turn directions.
     Landmark/room data from perframe (gate3 LLM output).
     Targets ~25 words, calibrated GT vocabulary distributions.
+    turn_threshold: angle in degrees above which a direction change is treated as an explicit turn.
+      Default 45° (v208 calibrated). Higher values (e.g. 90°) reduce turn count toward GT distribution.
     """
     # v208: Uniform 45° turn threshold for all modes.
     # v207 used 60° for path-only → caused 28.4% turn under-detection vs GT.
     # GT val_seen: 84.7% of instructions mention turns; our path-only was only 61.3%.
     # 45° catches real navigational turns without excessive over-detection.
     _has_context = bool(perframe) and bool(perframe.get("start"))
-    _turn_threshold = 45.0  # v208: uniform 45° for all modes
+    _turn_threshold = turn_threshold  # configurable, default 45°
     pa = analyze_path(reference_path, start_rotation, turn_threshold_deg=_turn_threshold)
     turn_prims = [p for p in pa["primitives"] if p["type"] in ("left_turn", "right_turn")]
     elev_prims = [p for p in pa["primitives"] if p["type"] == "elevation"]
@@ -824,7 +832,8 @@ def reproduce_instruction(
         # explicit "turn {direction}". Sharp turns (>75°) keep explicit because direction cue is critical.
         # This reduces explicit turns while matching GT vocabulary distribution.
         def _turn_frag_with_room(t: dict, prev_room: str, capital: bool = False) -> str:
-            """Gate3-mode turn fragment. v218: implicit movement for non-sharp room-change turns."""
+            """Gate3-mode turn fragment. v218: implicit movement for non-sharp room-change turns.
+            v220: increased implicit rate — room_changed branch 0.70→0.85, implicit prob 0.65→0.80."""
             td = t["direction"]
             lm = t.get("landmark")
             turn_room = (t.get("room") or "").lower().strip()
