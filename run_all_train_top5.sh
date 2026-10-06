@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# Run train annotation for all top 5 versions sequentially.
-# MUST only run after:
-#   1. gate1_renderer/render_train.sh has completed (all 10819 frames rendered)
-#   2. GPU2 is confirmed free (eval chain finished)
+# Run train annotation for all top 5 versions IN PARALLEL.
+# All 5 versions hit the remote vLLM server simultaneously —
+# reduces annotation from ~7.5 hrs (sequential) to ~1.5 hrs.
 #
-# This is triggered automatically by gate1_renderer/watcher_render_train.sh
-# when the v288 eval result appears.
+# Annotation uses remote vLLM at 10.77.32.231:8000 — no local GPU needed.
+# Workers per version: 6 (5 versions × 6 = 30 concurrent vLLM requests).
 #
 # Manual usage:
-#   bash run_all_train_top5.sh [--resume]
+#   bash run_all_train_top5.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,50 +15,52 @@ LOGS="outputs/logs"
 mkdir -p "$LOGS"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Safety check: ensure train frames exist
 TRAIN_FRAMES="outputs/rendered_frames_train"
 if [ ! -d "$TRAIN_FRAMES" ]; then
-    echo "ERROR: $TRAIN_FRAMES does not exist."
-    echo "       Run gate1_renderer/render_train.sh first."
+    echo "ERROR: $TRAIN_FRAMES does not exist. Run render_train.sh first."
     exit 1
 fi
 
 N_RENDERED=$(find "$TRAIN_FRAMES" -name "poses.json" 2>/dev/null | wc -l)
-if [ "$N_RENDERED" -lt 1000 ]; then
-    echo "WARNING: Only $N_RENDERED train episodes rendered (expected 10819)."
-    echo "         Continue anyway? [y/N]"
-    read -r ans
-    [[ "$ans" =~ ^[Yy]$ ]] || exit 1
-fi
+echo "=== Train frames: $N_RENDERED / 10819 episodes ==="
 
-echo "=== Train frames: $N_RENDERED episodes ==="
-
-run_version() {
+run_version_bg() {
     local VER="$1"
-    local CFG="configs/annotator_${VER}.yaml"
     local LOG="$LOGS/train_${VER}_${TIMESTAMP}.log"
-    echo ""
-    echo "=========================================="
-    echo "  Annotating train with config $VER"
-    echo "  Log: $LOG"
-    echo "=========================================="
+    echo "  Launching $VER → $LOG"
     python3 run_annotator_configured.py \
-        --config "$CFG" \
+        --config "configs/annotator_${VER}.yaml" \
         --split train \
+        --workers 6 \
         --resume \
-        2>&1 | tee "$LOG"
-    echo "=== Done: train_$VER ==="
+        > "$LOG" 2>&1 &
+    echo $!
 }
 
-echo "=== Top 5 train annotation run ==="
-echo "  Running: v264, v272, v273, v277, v278"
+echo ""
+echo "=== Launching all 5 versions in PARALLEL ==="
+echo "  (5 × 6 workers = 30 concurrent vLLM requests)"
 echo ""
 
-run_version v264
-run_version v272
-run_version v273
-run_version v277
-run_version v278
+PID_264=$(run_version_bg v264)
+PID_272=$(run_version_bg v272)
+PID_273=$(run_version_bg v273)
+PID_277=$(run_version_bg v277)
+PID_278=$(run_version_bg v278)
+
+echo "  PIDs: v264=$PID_264  v272=$PID_272  v273=$PID_273  v277=$PID_277  v278=$PID_278"
+echo ""
+echo "Monitor progress:"
+echo "  watch -n30 'for v in v264 v272 v273 v277 v278; do"
+echo "    n=\$(ls outputs/annotated_datasets_top5/train_\${v}_meta/ 2>/dev/null | wc -l)"
+echo "    echo \"train_\$v: \$n/10819\"; done'"
+
+# Wait for all
+wait $PID_264 && echo "v264 done" || echo "v264 FAILED"
+wait $PID_272 && echo "v272 done" || echo "v272 FAILED"
+wait $PID_273 && echo "v273 done" || echo "v273 FAILED"
+wait $PID_277 && echo "v277 done" || echo "v277 FAILED"
+wait $PID_278 && echo "v278 done" || echo "v278 FAILED"
 
 echo ""
 echo "=== All train versions complete. Running organize script... ==="
