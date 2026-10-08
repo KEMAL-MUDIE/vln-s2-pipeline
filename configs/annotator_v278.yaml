@@ -80,9 +80,13 @@ output:
   base_dir: "outputs/annotated_datasets_top5"
 
   val_unseen:
-    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v278.json.gz"
+    # VLM-annotated val_unseen: full Gate1-4 pipeline, VLM instruction primary.
+    # ChronoNav backup saved as unseen_v278_chrono.json.gz.
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen.json.gz"
+    frames_dir: "outputs/rendered_frames"
     metadata_dir: "outputs/annotated_datasets_top5/unseen_v278_meta"
     dataset_out: "outputs/annotated_datasets_top5/unseen_v278.json.gz"
+    vlm_instruction_primary: true
 
   val_seen:
     source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_seen/val_seen.json.gz"

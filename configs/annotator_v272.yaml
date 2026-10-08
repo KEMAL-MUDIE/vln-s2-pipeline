@@ -63,10 +63,13 @@ output:
 
   val_unseen:
     # ChronoNav dataset (already exists). Annotation DONE (1839/1839 episodes).
-    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen_v272.json.gz"
-    metadata_dir: "outputs/complete_metadata_unseen_v272"
+    # VLM-annotated val_unseen: full Gate1-4 pipeline, VLM instruction primary.
+    # ChronoNav backup saved as unseen_v272_chrono.json.gz.
+    source_dataset: "/mnt/nvme0/vln_habitat/habitat_data/datasets/vln/mp3d/r2r/v1/val_unseen/val_unseen.json.gz"
+    frames_dir: "outputs/rendered_frames"
+    metadata_dir: "outputs/annotated_datasets_top5/unseen_v272_meta"
     dataset_out: "outputs/annotated_datasets_top5/unseen_v272.json.gz"
-    status: "DONE"
+    vlm_instruction_primary: true
 
   val_seen:
     # Annotation DONE (778/778 episodes via val_seen_complete_v272).

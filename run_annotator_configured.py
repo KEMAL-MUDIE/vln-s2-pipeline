@@ -360,18 +360,17 @@ def annotate_episode(ep_id: int, gt_ep: Dict, frames_dir: Path, cfg: Dict) -> Di
 
 
 def assemble_dataset(split: str, gt_data: Dict, out_dir: Path, dataset_out: Path,
-                     source_dataset: Optional[str] = None):
+                     source_dataset: Optional[str] = None, use_vlm_primary: bool = False):
     """Assemble final .json.gz from per-episode metadata."""
     meta_files = sorted(out_dir.glob("ep_*.json"))
     print(f"Assembling {len(meta_files)} episodes → {dataset_out}")
 
-    # Load source dataset (ChronoNav) or GT as instruction source
-    if source_dataset and Path(source_dataset).exists():
+    # Load source dataset (ChronoNav) or GT as instruction source override
+    src_eps = {}
+    if not use_vlm_primary and source_dataset and Path(source_dataset).exists():
         with gzip.open(source_dataset, "rt") as f:
             src = json.load(f)
         src_eps = {ep["episode_id"]: ep for ep in src["episodes"]}
-    else:
-        src_eps = {}
 
     episodes = []
     for mf in meta_files:
@@ -379,8 +378,10 @@ def assemble_dataset(split: str, gt_data: Dict, out_dir: Path, dataset_out: Path
             meta = json.load(f)
         ep_id = meta["episode_id"]
 
-        # Use ChronoNav instruction if available, else generated
-        if ep_id in src_eps:
+        # VLM-primary: always use generated instruction. Otherwise use source if available.
+        if use_vlm_primary:
+            instr_text = meta["generated_instruction"]["text"]
+        elif ep_id in src_eps:
             instr_text = src_eps[ep_id].get("instruction", {}).get("instruction_text",
                          meta["generated_instruction"]["text"])
         else:
@@ -426,6 +427,7 @@ def run_batch(cfg: Dict, split: str, workers: int, resume: bool, limit: Optional
     frames_dir = Path(PIPELINE_ROOT / split_cfg.get("frames_dir", ""))
     out_dir = Path(PIPELINE_ROOT / split_cfg.get("metadata_dir", f"outputs/annotated_datasets_top5/{split}_meta"))
     dataset_out = Path(PIPELINE_ROOT / split_cfg.get("dataset_out", f"outputs/annotated_datasets_top5/{split}.json.gz"))
+    use_vlm_primary = bool(split_cfg.get("vlm_instruction_primary", False))
 
     if not gt_path.exists():
         print(f"ERROR: source dataset not found: {gt_path}")
@@ -479,7 +481,7 @@ def run_batch(cfg: Dict, split: str, workers: int, resume: bool, limit: Optional
                 print(f"  [{completed}/{total}] ok={completed-failed} fail={failed}")
 
     print(f"Done: {completed-failed}/{total} ok, {failed} failed")
-    assemble_dataset(split, gt_data, out_dir, dataset_out, str(gt_path))
+    assemble_dataset(split, gt_data, out_dir, dataset_out, str(gt_path), use_vlm_primary=use_vlm_primary)
 
 
 def main():
