@@ -20,6 +20,8 @@ from convert_top5_generated import SPLITS, VERSIONS, normalize
 from local_paths import CACHE_ROOT, HABITAT_BASE, VOCAB_SOURCE
 
 SRC = CACHE_ROOT / "top5_reproduce"
+GT_EPISODE_KEYS = ("episode_id", "trajectory_id", "scene_id", "start_position", "start_rotation",
+                   "goals", "reference_path", "info", "instruction")
 
 
 def main():
@@ -43,6 +45,8 @@ def main():
             for e in d["episodes"]:
                 e["instruction"]["instruction_text"] = normalize(e["_generated_instruction"]["text"])
                 e["instruction"]["instruction_tokens"] = []
+            # habitat VLNEpisode(**episode) rejects any non-GT key (_generated_instruction etc.)
+            d["episodes"] = [{k: e[k] for k in GT_EPISODE_KEYS if k in e} for e in d["episodes"]]
             d["instruction_vocab"] = vocab
             with gzip.open(dest, "wt") as f:
                 json.dump(d, f)

@@ -350,6 +350,9 @@ configs/vlm_prompts.yaml       landmark_detection / instruction_generation /
   모델 문제가 아니라 gate3 캐시 또는 규칙 문제다
 - **gate3 캐시가 없으면 조용히 템플릿으로 떨어진다.** 에러가 안 난다.
   생성 후 반드시 내용어 수를 센다 (GT train 2,228 / val_unseen 987)
+- **label episode 의 키는 GT episode 키의 부분집합이어야 한다.** habitat 이 `VLNEpisode(**episode)` 로
+  만들어서 `_generated_instruction` 같은 키가 있으면 평가가 즉시 죽는다 (학습은 통과해서 늦게 발견됨,
+  2026-10-10 eval 18건). `annotate.py deploy` 가 검사한다. 생성 기록은 `{split}_meta/ep_*.json` 에 둔다
 - **InternNav 평가기는 문장 마지막 글자를 자른다** (`habitat_vln_evaluator.py:614`).
   문장은 `". "` (마침표+공백) 로 끝나야 한다
 - **일부 variant 는 `instruction_vocab` 이 빈 dict** 다. `word_list` 유효성으로 판단해

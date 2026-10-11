@@ -302,16 +302,19 @@ def run_split(cfg, split, workers, subset):
            "_generation_meta": {"label": cfg["label"], "gen_hash": ghash, "gate3_hash": gate3_hash(cfg),
                                 "config": cfg, "git": git_sha(), "split": split, "subset": subset,
                                 "created": time.strftime("%Y-%m-%d %H:%M:%S")}}
-    n_bad = 0
+    # episodes keep only GT keys: habitat builds VLNEpisode(**episode) and rejects unknown keys.
+    # per-episode generation records stay in {split}_meta/ep_*.json; only a summary goes here.
+    n_bad, styles = 0, Counter()
     for e in eps:
         m = json.load(open(meta_dir / f"ep_{e['episode_id']:06d}.json"))
         gi = m["generated_instruction"]
         n_bad += not gi["quality_ok"]
+        styles[gi["stop_style"]] += 1
         ep = {k: e[k] for k in ("episode_id", "trajectory_id", "scene_id", "start_position", "start_rotation",
                                 "goals", "reference_path", "info") if k in e}
         ep["instruction"] = {"instruction_text": normalize(gi["text"]), "instruction_tokens": []}
-        ep["_generated_instruction"] = gi
         out["episodes"].append(ep)
+    out["_generation_meta"].update(quality_fail=n_bad, stop_style=dict(styles))
     dst = root / f"{split}.json.gz"
     with gzip.open(dst, "wt") as f:
         json.dump(out, f)
@@ -350,14 +353,23 @@ def metrics(path, split):
             "f1_vs_gt": round(st.mean(f1(e["instruction"]["instruction_text"], gt[e["episode_id"]]) for e in eps), 3)}
 
 
+def check_episode_keys(path, split):
+    """habitat's VLNEpisode(**episode) dies on any episode key the GT file doesn't have."""
+    allowed = set(json.load(gzip.open(GT_PATHS[split]))["episodes"][0])
+    extra = set().union(*(e.keys() for e in json.load(gzip.open(path))["episodes"])) - allowed
+    assert not extra, f"{path}: episode keys {sorted(extra)} not in GT -> habitat eval would crash"
+
+
 def deploy(cfg):
     label, ghash = cfg["label"], gen_hash(cfg)
     for split in SPLITS:
         src = OUT_ROOT / label / f"{split}.json.gz"
         dst = HABITAT_BASE / split / f"{split}_{label}.json.gz"
+        check_episode_keys(src, split)
         if dst.exists():  # never overwrite; same hash = already deployed
             old = json.load(gzip.open(dst)).get("_generation_meta", {}).get("gen_hash")
             assert old == ghash, f"{dst} exists with gen_hash {old} != {ghash}; not overwriting"
+            check_episode_keys(dst, split)
         else:
             shutil.copy(src, dst)
         (SHARE / split).mkdir(parents=True, exist_ok=True)
