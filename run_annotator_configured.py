@@ -109,45 +109,52 @@ def _generate_text(client, prompt: str, cfg: Dict, stage: str = "gate4",
 
 
 SCENE_DESCRIPTION_PROMPT = """\
-A robot is navigating through this indoor environment.
-Describe what you see in 1-2 sentences focusing on:
-1. The ROOM TYPE (bedroom, kitchen, hallway, living room, staircase, etc.)
-2. The 2-3 most distinctive LANDMARKS visible (furniture, doorways, rugs, appliances, decor)
-3. The apparent NAVIGATION DIRECTION (straight ahead, turning left/right, approaching stairs)
+You are describing a navigation waypoint for a robot moving through a building.
+The robot is standing at this exact location and needs to know where it is.
 
-Format: ROOM: <type> | LANDMARKS: <item1>, <item2>, <item3> | DIRECTION: <straight|left|right|stairs|unclear>
+Describe what the robot sees RIGHT NOW from its position:
+1. ROOM TYPE — what specific room is this? (bedroom, kitchen, hallway, living room, dining room, bathroom, staircase, entryway, office, etc.) If unsure, make your best guess — never say "unknown".
+2. 2-3 DISTINCTIVE LANDMARKS — the most unusual/memorable objects visible (NOT generic "wall" or "floor"). Prefer named objects: "dark wooden bookshelf", "arched stone doorway", "stainless steel refrigerator".
+3. NAVIGATION DIRECTION from this point — which way is the robot heading? (straight ahead, turning left, turning right, up/down stairs, entering doorway)
+
+Format exactly: ROOM: <type> | LANDMARKS: <item1>, <item2>, <item3> | DIRECTION: <straight|left|right|stairs|unclear>
 """
 
 GOAL_LANDMARK_PROMPT = """\
-This is the FINAL frame — the destination where the robot should stop.
-Describe the stopping location in 1 sentence suitable for use as a navigation landmark.
-Focus on the most distinctive object or feature at/near the stopping point.
-Write ONLY the landmark description:
+This is the FINAL frame — the exact location where the robot must STOP.
+Identify the single most distinctive object or feature the robot is near at the stopping point.
+Choose something unusual and memorable, not generic furniture.
+Examples of GOOD landmarks: "ornate wooden cabinet", "white marble fireplace", "glass display case", "curved metal sculpture"
+Examples of BAD landmarks: "a chair", "the wall", "some furniture"
+Write ONLY a 3-8 word landmark description (no full sentence):
 """
 
 INSTRUCTION_GENERATION_PROMPT = """\
-You are a navigation instruction writer for vision-language robot navigation.
+You are writing indoor navigation instructions for a robot, exactly like a human giving directions to another person inside a building.
 
-Write a concise, natural navigation instruction for this path.
-
-PATH MOTION SEQUENCE:
+PATH MOTION:
 {motion_text}
 
-SCENE CONTEXT AT KEY POINTS:
+SCENE CONTEXT (what the robot sees at each waypoint):
 {scene_context}
 
-GOAL/DESTINATION:
+STOP LOCATION:
 {goal_landmark}
 
-REQUIREMENTS:
-- 1-4 short sentences, 15-40 words total
-- Reference specific visible landmarks (furniture, rooms, doorways, etc.)
-- Use natural turn language: "turn left/right", "make a left", "go left at"
-- MUST include a clear stop condition: "stop at/near/by [landmark]" or "wait at [landmark]"
-- No distances in metres or numbers
-- Concise, direct — like giving directions to a person
+Write a natural navigation instruction following these rules:
+- 2-4 sentences, 15-40 words total
+- VARY the first word — choose from: Walk / Exit / Turn / Head / Enter / Leave / Go / Pass / Move (pick what fits the first action)
+- Reference specific room names and distinctive objects along the path
+- Each turn: say "turn left/right at [specific landmark]" — not just "turn left"
+- MUST end with a specific stop condition: "stop near [landmark]", "wait by [landmark]", "stand at [landmark]"
+- Write like a concise human giving directions: natural, direct, specific
 
-Write ONLY the instruction text:
+Examples of the style to match:
+  "Walk through the kitchen past the island, turn left into the hallway. Stop near the wooden door on your right."
+  "Exit the bedroom and turn right. Head down the hallway and stop in front of the bathroom door."
+  "Turn left at the blue couch, walk through the living room, and wait by the glass coffee table."
+
+Write ONLY the instruction text (no preamble, no quotes):
 """
 
 
@@ -203,6 +210,11 @@ def _quality_check(text: str, cfg: Dict) -> List[str]:
                         "dining", "bathroom", "cabinet", "shelf", "rug", "counter", "fireplace"}
         if not any(n in text.lower() for n in common_nouns):
             issues.append("no_landmark")
+    if q.get("reject_go_straight", False):
+        # Reject instructions starting with "go straight" to force first-word diversity
+        first_two = " ".join(words[:2]).lower().rstrip(",")
+        if first_two in ("go straight", "go forward"):
+            issues.append("go_straight_bias")
     return issues
 
 
